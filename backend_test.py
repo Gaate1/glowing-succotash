@@ -364,7 +364,7 @@ def run_all_tests():
         project_id = test_project_crud()
         
         # Test annotation CRUD
-        annotation_id = test_annotation_crud(project_id)
+        test_annotation_crud(project_id)
         
         # Test file upload
         test_file_upload(project_id)
@@ -373,7 +373,7 @@ def run_all_tests():
         test_batch_operations(project_id)
         
         # Test delete operations
-        test_delete_operations(project_id, annotation_id)
+        test_delete_operations(project_id)
         
         # Test edge cases
         test_edge_cases()
