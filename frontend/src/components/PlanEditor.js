@@ -4,8 +4,8 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
-import { Separator } from "./ui/separator";
-import { mockProjects } from "../data/mockData";
+import { useToast } from "../hooks/use-toast";
+import { projectApi, annotationApi, fileApi, fileToBase64 } from "../services/api";
 import { 
   ArrowLeft, 
   Upload, 
@@ -16,12 +16,13 @@ import {
   Circle, 
   Type, 
   Ruler, 
-  Palette,
   ZoomIn,
   ZoomOut,
   RotateCcw,
   Move,
-  Pen
+  Pen,
+  Loader2,
+  Trash2
 } from "lucide-react";
 
 const PlanEditor = () => {
@@ -29,6 +30,8 @@ const PlanEditor = () => {
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const [project, setProject] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [currentTool, setCurrentTool] = useState("move");
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentColor, setCurrentColor] = useState("#3b82f6");
@@ -40,25 +43,65 @@ const PlanEditor = () => {
   const [currentAnnotation, setCurrentAnnotation] = useState(null);
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const { toast } = useToast();
 
   useEffect(() => {
-    // Load project data
-    const savedProjects = localStorage.getItem("projects");
-    if (savedProjects) {
-      const projects = JSON.parse(savedProjects);
-      const currentProject = projects.find(p => p.id === projectId);
-      if (currentProject) {
-        setProject(currentProject);
-        // Load saved annotations for this project
-        const savedAnnotations = localStorage.getItem(`annotations_${projectId}`);
-        if (savedAnnotations) {
-          setAnnotations(JSON.parse(savedAnnotations));
-        }
-      }
-    }
+    loadProject();
   }, [projectId]);
 
   useEffect(() => {
+    if (project) {
+      loadAnnotations();
+      if (project.plan_image) {
+        loadBackgroundImage(project.plan_image);
+      }
+    }
+  }, [project]);
+
+  useEffect(() => {
+    redrawCanvas();
+  }, [annotations, backgroundImage, zoom, panOffset, currentAnnotation]);
+
+  const loadProject = async () => {
+    try {
+      setLoading(true);
+      const projectData = await projectApi.getProject(projectId);
+      setProject(projectData);
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger le projet",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadAnnotations = async () => {
+    try {
+      const annotationsData = await annotationApi.getAnnotations(projectId);
+      setAnnotations(annotationsData);
+      setHistory([annotationsData]);
+      setHistoryIndex(0);
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les annotations",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const loadBackgroundImage = (base64Data) => {
+    const img = new Image();
+    img.onload = () => {
+      setBackgroundImage(img);
+    };
+    img.src = base64Data;
+  };
+
+  const redrawCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -77,59 +120,89 @@ const PlanEditor = () => {
       ctx.drawImage(backgroundImage, 0, 0, canvas.width / zoom, canvas.height / zoom);
     }
     
-    // Draw annotations
+    // Draw saved annotations
     annotations.forEach(annotation => {
-      ctx.strokeStyle = annotation.color;
-      ctx.lineWidth = annotation.stroke;
-      ctx.fillStyle = annotation.color;
-      
-      switch (annotation.type) {
-        case "line":
+      drawAnnotation(ctx, annotation);
+    });
+    
+    // Draw current annotation being drawn
+    if (currentAnnotation) {
+      drawAnnotation(ctx, currentAnnotation);
+    }
+    
+    ctx.restore();
+  };
+
+  const drawAnnotation = (ctx, annotation) => {
+    ctx.strokeStyle = annotation.color;
+    ctx.lineWidth = annotation.stroke;
+    ctx.fillStyle = annotation.color;
+    
+    switch (annotation.type) {
+      case "line":
+        ctx.beginPath();
+        ctx.moveTo(annotation.data.startX, annotation.data.startY);
+        ctx.lineTo(annotation.data.endX, annotation.data.endY);
+        ctx.stroke();
+        break;
+      case "rectangle":
+        ctx.beginPath();
+        ctx.rect(annotation.data.x, annotation.data.y, annotation.data.width, annotation.data.height);
+        ctx.stroke();
+        break;
+      case "circle":
+        ctx.beginPath();
+        ctx.arc(annotation.data.x, annotation.data.y, annotation.data.radius, 0, 2 * Math.PI);
+        ctx.stroke();
+        break;
+      case "text":
+        ctx.font = `${annotation.data.fontSize || 16}px Arial`;
+        ctx.fillText(annotation.data.text, annotation.data.x, annotation.data.y);
+        break;
+      case "freehand":
+        if (annotation.data.points && annotation.data.points.length > 0) {
           ctx.beginPath();
-          ctx.moveTo(annotation.startX, annotation.startY);
-          ctx.lineTo(annotation.endX, annotation.endY);
-          ctx.stroke();
-          break;
-        case "rectangle":
-          ctx.beginPath();
-          ctx.rect(annotation.x, annotation.y, annotation.width, annotation.height);
-          ctx.stroke();
-          break;
-        case "circle":
-          ctx.beginPath();
-          ctx.arc(annotation.x, annotation.y, annotation.radius, 0, 2 * Math.PI);
-          ctx.stroke();
-          break;
-        case "text":
-          ctx.font = `${annotation.fontSize}px Arial`;
-          ctx.fillText(annotation.text, annotation.x, annotation.y);
-          break;
-        case "freehand":
-          ctx.beginPath();
-          ctx.moveTo(annotation.points[0].x, annotation.points[0].y);
-          annotation.points.forEach(point => {
+          ctx.moveTo(annotation.data.points[0].x, annotation.data.points[0].y);
+          annotation.data.points.forEach(point => {
             ctx.lineTo(point.x, point.y);
           });
           ctx.stroke();
-          break;
-      }
-    });
-    
-    ctx.restore();
-  }, [annotations, backgroundImage, zoom, panOffset]);
+        }
+        break;
+    }
+  };
 
-  const handleFileUpload = (event) => {
+  const handleFileUpload = async (event) => {
     const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          setBackgroundImage(img);
-        };
-        img.src = e.target.result;
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    try {
+      const base64Data = await fileToBase64(file);
+      
+      // Upload to backend
+      await fileApi.uploadFile({
+        project_id: projectId,
+        file_data: base64Data,
+        file_name: file.name,
+        file_type: file.type
+      });
+
+      // Load the image
+      loadBackgroundImage(base64Data);
+      
+      // Update project state
+      setProject(prev => ({ ...prev, plan_image: base64Data }));
+      
+      toast({
+        title: "Succès",
+        description: "Plan importé avec succès",
+      });
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible d'importer le plan",
+        variant: "destructive",
+      });
     }
   };
 
@@ -150,10 +223,12 @@ const PlanEditor = () => {
       case "line":
         setCurrentAnnotation({
           type: "line",
-          startX: coords.x,
-          startY: coords.y,
-          endX: coords.x,
-          endY: coords.y,
+          data: {
+            startX: coords.x,
+            startY: coords.y,
+            endX: coords.x,
+            endY: coords.y
+          },
           color: currentColor,
           stroke: currentStroke
         });
@@ -161,10 +236,12 @@ const PlanEditor = () => {
       case "rectangle":
         setCurrentAnnotation({
           type: "rectangle",
-          x: coords.x,
-          y: coords.y,
-          width: 0,
-          height: 0,
+          data: {
+            x: coords.x,
+            y: coords.y,
+            width: 0,
+            height: 0
+          },
           color: currentColor,
           stroke: currentStroke
         });
@@ -172,9 +249,11 @@ const PlanEditor = () => {
       case "circle":
         setCurrentAnnotation({
           type: "circle",
-          x: coords.x,
-          y: coords.y,
-          radius: 0,
+          data: {
+            x: coords.x,
+            y: coords.y,
+            radius: 0
+          },
           color: currentColor,
           stroke: currentStroke
         });
@@ -182,7 +261,9 @@ const PlanEditor = () => {
       case "freehand":
         setCurrentAnnotation({
           type: "freehand",
-          points: [coords],
+          data: {
+            points: [coords]
+          },
           color: currentColor,
           stroke: currentStroke
         });
@@ -199,31 +280,43 @@ const PlanEditor = () => {
       case "line":
         setCurrentAnnotation(prev => ({
           ...prev,
-          endX: coords.x,
-          endY: coords.y
+          data: {
+            ...prev.data,
+            endX: coords.x,
+            endY: coords.y
+          }
         }));
         break;
       case "rectangle":
         setCurrentAnnotation(prev => ({
           ...prev,
-          width: coords.x - prev.x,
-          height: coords.y - prev.y
+          data: {
+            ...prev.data,
+            width: coords.x - prev.data.x,
+            height: coords.y - prev.data.y
+          }
         }));
         break;
       case "circle":
         const radius = Math.sqrt(
-          Math.pow(coords.x - currentAnnotation.x, 2) + 
-          Math.pow(coords.y - currentAnnotation.y, 2)
+          Math.pow(coords.x - currentAnnotation.data.x, 2) + 
+          Math.pow(coords.y - currentAnnotation.data.y, 2)
         );
         setCurrentAnnotation(prev => ({
           ...prev,
-          radius: radius
+          data: {
+            ...prev.data,
+            radius: radius
+          }
         }));
         break;
       case "freehand":
         setCurrentAnnotation(prev => ({
           ...prev,
-          points: [...prev.points, coords]
+          data: {
+            ...prev.data,
+            points: [...prev.data.points, coords]
+          }
         }));
         break;
     }
@@ -241,7 +334,7 @@ const PlanEditor = () => {
 
   const saveToHistory = (newAnnotations) => {
     const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(newAnnotations);
+    newHistory.push([...newAnnotations]);
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
   };
@@ -249,21 +342,69 @@ const PlanEditor = () => {
   const undo = () => {
     if (historyIndex > 0) {
       setHistoryIndex(historyIndex - 1);
-      setAnnotations(history[historyIndex - 1]);
+      setAnnotations([...history[historyIndex - 1]]);
     }
   };
 
   const redo = () => {
     if (historyIndex < history.length - 1) {
       setHistoryIndex(historyIndex + 1);
-      setAnnotations(history[historyIndex + 1]);
+      setAnnotations([...history[historyIndex + 1]]);
     }
   };
 
-  const saveAnnotations = () => {
-    localStorage.setItem(`annotations_${projectId}`, JSON.stringify(annotations));
-    // Show success message (you could add a toast here)
-    alert("Annotations sauvegardées avec succès!");
+  const saveAnnotations = async () => {
+    try {
+      setSaving(true);
+      
+      // Convert annotations to API format
+      const annotationsData = annotations.map(annotation => ({
+        project_id: projectId,
+        type: annotation.type,
+        data: annotation.data,
+        color: annotation.color,
+        stroke: annotation.stroke,
+        notes: annotation.notes || ""
+      }));
+      
+      await annotationApi.saveAnnotationsBatch(projectId, annotationsData);
+      
+      toast({
+        title: "Succès",
+        description: "Annotations sauvegardées avec succès",
+      });
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de sauvegarder les annotations",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clearAnnotations = async () => {
+    if (!window.confirm("Êtes-vous sûr de vouloir effacer toutes les annotations ?")) {
+      return;
+    }
+
+    try {
+      await annotationApi.deleteAllAnnotations(projectId);
+      setAnnotations([]);
+      setHistory([[]]);
+      setHistoryIndex(0);
+      toast({
+        title: "Succès",
+        description: "Toutes les annotations ont été effacées",
+      });
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible d'effacer les annotations",
+        variant: "destructive",
+      });
+    }
   };
 
   const tools = [
@@ -280,8 +421,30 @@ const PlanEditor = () => {
     "#8b5cf6", "#ec4899", "#6b7280", "#000000"
   ];
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600 dark:text-gray-300">Chargement du projet...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!project) {
-    return <div>Chargement...</div>;
+    return (
+      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+            Projet non trouvé
+          </h2>
+          <Link to="/projects">
+            <Button variant="outline">Retour aux projets</Button>
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -311,9 +474,21 @@ const PlanEditor = () => {
               <Button onClick={redo} disabled={historyIndex >= history.length - 1} variant="outline" size="sm">
                 <Redo2 className="h-4 w-4" />
               </Button>
-              <Button onClick={saveAnnotations} className="bg-green-600 hover:bg-green-700 text-white">
-                <Save className="h-4 w-4 mr-2" />
-                Sauvegarder
+              <Button onClick={clearAnnotations} variant="outline" size="sm" className="text-red-600">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+              <Button onClick={saveAnnotations} disabled={saving} className="bg-green-600 hover:bg-green-700 text-white">
+                {saving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Sauvegarde...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Sauvegarder
+                  </>
+                )}
               </Button>
             </div>
           </div>
@@ -463,6 +638,9 @@ const PlanEditor = () => {
           <div className="absolute top-4 left-4 bg-white dark:bg-gray-800 rounded-lg p-2 shadow-lg">
             <div className="text-xs text-gray-500">
               Zoom: {Math.round(zoom * 100)}% | Outil: {tools.find(t => t.id === currentTool)?.label}
+            </div>
+            <div className="text-xs text-gray-500">
+              Annotations: {annotations.length}
             </div>
           </div>
         </div>

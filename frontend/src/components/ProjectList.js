@@ -5,11 +5,13 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
 import { Badge } from "./ui/badge";
-import { mockProjects } from "../data/mockData";
-import { ArrowLeft, Plus, Search, Calendar, FileText, Edit3 } from "lucide-react";
+import { useToast } from "../hooks/use-toast";
+import { projectApi } from "../services/api";
+import { ArrowLeft, Plus, Search, Calendar, FileText, Edit3, Loader2, Trash2 } from "lucide-react";
 
 const ProjectList = () => {
   const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [newProject, setNewProject] = useState({
     name: "",
@@ -17,37 +19,78 @@ const ProjectList = () => {
     location: ""
   });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
-    // Simulate loading projects from storage
-    const savedProjects = localStorage.getItem("projects");
-    if (savedProjects) {
-      setProjects(JSON.parse(savedProjects));
-    } else {
-      setProjects(mockProjects);
-      localStorage.setItem("projects", JSON.stringify(mockProjects));
-    }
+    loadProjects();
   }, []);
 
-  const handleCreateProject = () => {
-    if (newProject.name.trim()) {
-      const project = {
-        id: Date.now().toString(),
-        name: newProject.name,
-        description: newProject.description,
-        location: newProject.location,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        status: "En cours",
-        planCount: 0
-      };
-      
-      const updatedProjects = [...projects, project];
-      setProjects(updatedProjects);
-      localStorage.setItem("projects", JSON.stringify(updatedProjects));
-      
+  const loadProjects = async () => {
+    try {
+      setLoading(true);
+      const projectsData = await projectApi.getProjects();
+      setProjects(projectsData);
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les projets",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateProject = async () => {
+    if (!newProject.name.trim()) {
+      toast({
+        title: "Erreur",
+        description: "Le nom du projet est requis",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsCreating(true);
+      const createdProject = await projectApi.createProject(newProject);
+      setProjects([...projects, createdProject]);
       setNewProject({ name: "", description: "", location: "" });
       setIsDialogOpen(false);
+      toast({
+        title: "Succès",
+        description: "Projet créé avec succès",
+      });
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de créer le projet",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleDeleteProject = async (projectId) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce projet ?")) {
+      return;
+    }
+
+    try {
+      await projectApi.deleteProject(projectId);
+      setProjects(projects.filter(p => p.id !== projectId));
+      toast({
+        title: "Succès",
+        description: "Projet supprimé avec succès",
+      });
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de supprimer le projet",
+        variant: "destructive",
+      });
     }
   };
 
@@ -68,6 +111,17 @@ const ProjectList = () => {
         return "bg-gray-100 text-gray-800";
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600 dark:text-gray-300">Chargement des projets...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
@@ -99,7 +153,7 @@ const ProjectList = () => {
                 <div className="space-y-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Nom du projet
+                      Nom du projet *
                     </label>
                     <Input
                       placeholder="Ex: Rénovation Immeuble A"
@@ -129,9 +183,17 @@ const ProjectList = () => {
                   </div>
                   <Button 
                     onClick={handleCreateProject}
+                    disabled={isCreating}
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                   >
-                    Créer le projet
+                    {isCreating ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Création...
+                      </>
+                    ) : (
+                      "Créer le projet"
+                    )}
                   </Button>
                 </div>
               </DialogContent>
@@ -164,9 +226,19 @@ const ProjectList = () => {
                   <CardTitle className="text-lg text-gray-900 dark:text-white">
                     {project.name}
                   </CardTitle>
-                  <Badge className={getStatusColor(project.status)}>
-                    {project.status}
-                  </Badge>
+                  <div className="flex items-center space-x-2">
+                    <Badge className={getStatusColor(project.status)}>
+                      {project.status}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteProject(project.id)}
+                      className="text-red-500 hover:text-red-700 p-1"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   {project.location}
@@ -180,11 +252,11 @@ const ProjectList = () => {
                 <div className="flex items-center space-x-4 text-sm text-gray-500">
                   <div className="flex items-center space-x-1">
                     <FileText className="h-4 w-4" />
-                    <span>{project.planCount} plans</span>
+                    <span>{project.plan_count} annotations</span>
                   </div>
                   <div className="flex items-center space-x-1">
                     <Calendar className="h-4 w-4" />
-                    <span>{new Date(project.createdAt).toLocaleDateString()}</span>
+                    <span>{new Date(project.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
 
@@ -199,14 +271,14 @@ const ProjectList = () => {
           ))}
         </div>
 
-        {filteredProjects.length === 0 && (
+        {filteredProjects.length === 0 && !loading && (
           <div className="text-center py-12">
             <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-              Aucun projet trouvé
+              {searchTerm ? "Aucun projet trouvé" : "Aucun projet"}
             </h3>
             <p className="text-gray-500 dark:text-gray-400">
-              Créez votre premier projet pour commencer
+              {searchTerm ? "Essayez un autre terme de recherche" : "Créez votre premier projet pour commencer"}
             </p>
           </div>
         )}
