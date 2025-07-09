@@ -2,7 +2,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
-from models import Project, ProjectCreate, ProjectUpdate, Annotation, AnnotationCreate, AnnotationUpdate, FileUpload
+from backend.models import Project, ProjectCreate, ProjectUpdate, Annotation, AnnotationCreate, AnnotationUpdate, FileUpload
 import os
 import logging
 from pathlib import Path
