@@ -251,8 +251,27 @@ def test_batch_operations(project_id):
     
     return True
 
-def test_delete_operations(project_id, annotation_id):
+def test_delete_operations(project_id):
     print_separator("Testing Delete Operations")
+    
+    # Get an annotation ID to delete
+    print("\n--- Getting annotation ID to delete ---")
+    response = requests.get(f"{API_URL}/annotations/{project_id}")
+    annotations = response.json()
+    if not annotations:
+        print("No annotations found to delete. Creating one...")
+        annotation_data = {
+            "project_id": project_id,
+            "type": "rectangle",
+            "data": {"x": 100, "y": 100, "width": 50, "height": 50},
+            "notes": "Annotation to delete"
+        }
+        response = requests.post(f"{API_URL}/annotations", json=annotation_data)
+        annotation_id = response.json()["id"]
+    else:
+        annotation_id = annotations[0]["id"]
+    
+    print(f"Using annotation ID: {annotation_id}")
     
     # Delete single annotation
     print("\n--- Deleting single annotation ---")
