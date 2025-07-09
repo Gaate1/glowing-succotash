@@ -198,8 +198,13 @@ def test_file_upload(project_id):
     # Test upload with invalid project ID
     print("\n--- Testing upload with invalid project ID ---")
     invalid_id = str(uuid.uuid4())
-    upload_data["project_id"] = invalid_id
-    response = requests.post(f"{API_URL}/upload", json=upload_data)
+    invalid_upload_data = {
+        "project_id": invalid_id,
+        "file_data": sample_base64_image,
+        "file_name": "test_plan.png",
+        "file_type": "image/png"
+    }
+    response = requests.post(f"{API_URL}/upload", json=invalid_upload_data)
     print_response(response, "Upload to invalid project:")
     assert response.status_code == 404
     
