@@ -177,8 +177,12 @@ def test_file_upload(project_id):
     
     # Upload file
     print("\n--- Uploading file ---")
-    upload_data = test_file_upload.copy()
-    upload_data["project_id"] = project_id
+    upload_data = {
+        "project_id": project_id,
+        "file_data": sample_base64_image,
+        "file_name": "test_plan.png",
+        "file_type": "image/png"
+    }
     response = requests.post(f"{API_URL}/upload", json=upload_data)
     print_response(response, "Upload file:")
     assert response.status_code == 200
